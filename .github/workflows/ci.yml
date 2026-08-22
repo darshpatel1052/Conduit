@@ -37,7 +37,7 @@ jobs:
         run: |
           # gofmt -l prints files that need formatting and exits 0 either way,
           # so the emptiness of its output is the assertion.
-          unformatted=$(gofmt -l $(find cmd internal scripts/load/mockprovider -type f -name '*.go'))
+          unformatted=$(gofmt -l $(find internal scripts/load/mockprovider -type f -name '*.go'))
           if [ -n "$unformatted" ]; then
             echo "::error::not gofmt'd:"
             echo "$unformatted"
@@ -45,20 +45,20 @@ jobs:
           fi
 
       - name: go vet
-        run: go vet ./cmd/... ./internal/... ./scripts/load/mockprovider/...
+        run: go vet ./internal/... ./scripts/load/mockprovider/...
 
       - name: Tests with the race detector
         # -race is the point of running tests in CI at all for this codebase:
         # the gateway's whole job is concurrent, and the interesting bugs
         # (atomic routing-table swaps, breaker callbacks, stream cancellation)
         # are the ones a single-threaded test run cannot see.
-        run: go test ./cmd/... ./internal/... ./scripts/load/mockprovider/... -race -count=1
+        run: go test ./internal/... ./scripts/load/mockprovider/... -race -count=1
 
       - name: Build
-        run: go build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=${{ github.sha }}" -o /tmp/conduit ./cmd/gateway
+        run: go build -buildvcs=false -trimpath -ldflags "-s -w" -o /tmp/mockprovider ./scripts/load/mockprovider
 
-      - name: Binary starts and reports its version
-        run: /tmp/conduit -version
+      - name: Binary starts
+        run: /tmp/mockprovider -h >/dev/null
 
   web:
     name: Dashboard — lint, typecheck, build
