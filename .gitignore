@@ -1,0 +1,34 @@
+# Secrets
+.env
+*.pem
+
+# Build output
+/bin/
+/dist/
+conduit
+gateway
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Python tooling
+__pycache__/
+*.py[cod]
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Frontend
+web/node_modules/
+web/.next/
+web/out/
+*.tsbuildinfo
+
+# Local scratch
+*.log
+tmp/

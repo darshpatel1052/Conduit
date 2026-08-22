@@ -1,0 +1,25 @@
+# Keep the build context small and free of anything secret.
+#
+# The context is uploaded to the daemon in full before the first instruction
+# runs, so a stray node_modules is time on every build, and a stray .env is a
+# credential in a layer.
+
+.git
+.gitignore
+bin/
+coverage.out
+
+# The dashboard has its own Dockerfile and its own context.
+web/
+
+# Never: these hold real credentials.
+.env
+.env.*
+!.env.example
+
+# Documentation and deployment tooling contribute nothing to the binary.
+README.md
+*.md
+deploy/
+docker-compose.yml
+Makefile

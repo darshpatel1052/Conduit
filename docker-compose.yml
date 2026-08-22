@@ -1,0 +1,100 @@
+name: conduit
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: conduit
+      POSTGRES_PASSWORD: conduit
+      POSTGRES_DB: conduit
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports: ["5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conduit -d conduit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    ports: ["6379:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_USER: conduit
+      CLICKHOUSE_PASSWORD: conduit
+      CLICKHOUSE_DB: conduit
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports: ["8123:8123", "9000:9000"]
+    volumes: ["clickhouse-data:/var/lib/clickhouse"]
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  mock-provider:
+    build:
+      context: .
+      target: mock-provider
+      network: host
+    ports: ["19100:19100"]
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      target: gateway
+      network: host
+    command: ["-config", "/app/configs/conduit.compose.yaml"]
+    environment:
+      CONDUIT_MASTER_KEY: ${CONDUIT_MASTER_KEY:-Y29uZHVpdC1sb2NhbC1tYXN0ZXIta2V5LTMyYnl0ZSE=}
+      POSTGRES_DSN: postgres://conduit:conduit@postgres:5432/conduit?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      CLICKHOUSE_DSN: clickhouse://conduit:conduit@clickhouse:9000/conduit
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+      mock-provider: {condition: service_started}
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./web
+      network: host
+    environment:
+      CONDUIT_URL: http://gateway:8080
+    ports: ["3000:3000"]
+    depends_on:
+      gateway: {condition: service_started}
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  clickhouse-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 192.168.240.0/20

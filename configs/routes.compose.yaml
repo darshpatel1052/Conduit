@@ -1,0 +1,15 @@
+providers:
+  - name: bootstrap-mock
+    type: openai
+    base_url: http://mock-provider:19100
+    timeout: 10s
+    breaker:
+      consecutive_failures: 3
+      cooldown: 5s
+routes:
+  - model: bootstrap
+    strategy: priority
+    max_attempts: 1
+    targets:
+      - provider: bootstrap-mock
+        model: mock-model

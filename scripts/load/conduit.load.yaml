@@ -1,0 +1,44 @@
+# Gateway config for the load tests.
+#
+# The optional subsystems are off: this test measures the gateway's own
+# request path, and a Redis round trip or an embedding call per request would
+# be measuring those instead. They have their own verification in
+# the product-story checks exercised by `make demo`.
+
+server:
+  addr: ":8080"
+  write_timeout: 0s
+  max_request_bytes: 8388608
+
+log:
+  # Per-request logging at info level dominates the profile at thousands of
+  # requests per second — it is the gateway writing about itself rather than
+  # doing its job. Production runs at info; this measurement does not.
+  level: error
+  format: json
+
+upstream:
+  connect_timeout: 5s
+  response_header_timeout: 30s
+  request_timeout: 30s
+  # The default of 2 idle connections per host would have every request past
+  # the second paying a fresh TCP handshake, which is the single biggest thing
+  # a naive gateway gets wrong.
+  max_idle_conns: 4096
+  max_idle_conns_per_host: 1024
+  disable_compression: true
+
+auth:
+  enabled: false
+rate_limit:
+  enabled: false
+cache:
+  enabled: false
+analytics:
+  enabled: false
+metrics:
+  enabled: true
+tracing:
+  enabled: false
+
+routes_file: scripts/load/routes.load.yaml

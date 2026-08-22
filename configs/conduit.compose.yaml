@@ -1,0 +1,69 @@
+server:
+  addr: ":8080"
+  read_header_timeout: 10s
+  read_timeout: 60s
+  write_timeout: 0s
+  idle_timeout: 120s
+  shutdown_timeout: 20s
+  max_request_bytes: 8388608
+log: {level: info, format: json, source: false}
+upstream:
+  connect_timeout: 5s
+  response_header_timeout: 180s
+  request_timeout: 120s
+  stream_first_chunk_timeout: 120s
+  stream_idle_timeout: 60s
+  max_idle_conns: 256
+  max_idle_conns_per_host: 64
+  max_conns_per_host: 0
+  idle_conn_timeout: 90s
+  disable_compression: true
+control:
+  enabled: true
+  postgres_dsn: postgres://conduit:conduit@postgres:5432/conduit?sslmode=disable
+  redis_url: redis://redis:6379/0
+  session_ttl: 8h
+  secure_cookies: false
+auth: {enabled: false, header: Authorization, scheme: Bearer, keys: []}
+rate_limit:
+  enabled: true
+  redis_url: redis://redis:6379/0
+  algorithm: sliding_window
+  window: 60s
+  burst: 0
+  fail_open: false
+  timeout: 250ms
+  default_requests_per_minute: 60
+  default_tokens_per_minute: 100000
+  anonymous_requests_per_minute: 10
+cache:
+  enabled: true
+  postgres_dsn: postgres://conduit:conduit@postgres:5432/conduit?sslmode=disable
+  max_conns: 10
+  semantic_enabled: true
+  similarity_threshold: 0.95
+  max_temperature: 0.3
+  ttl: 24h
+  purge_interval: 10m
+  timeout: 3s
+  embedding:
+    base_url: http://mock-provider:19100
+    model: deterministic-local-embedding
+    dimensions: 768
+    timeout: 5s
+metrics: {enabled: true, path: /metrics}
+analytics:
+  enabled: true
+  clickhouse_dsn: clickhouse://conduit:conduit@clickhouse:9000/conduit
+  redis_url: redis://redis:6379/0
+  buffer_size: 10000
+  batch_size: 100
+  flush_interval: 2s
+  write_timeout: 15s
+tracing:
+  enabled: false
+  endpoint: localhost:4318
+  service_name: conduit
+  environment: development
+  sample_ratio: 0.1
+routes_file: /app/configs/routes.compose.yaml

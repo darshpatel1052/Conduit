@@ -1,0 +1,53 @@
+# Example team deployment. Provider secrets stay in environment variables;
+# this file contains routing policy only and can be committed safely.
+
+providers:
+  - name: openai-primary
+    type: openai
+    base_url: https://api.openai.com
+    api_key_env: OPENAI_API_KEY
+    timeout: 60s
+    breaker:
+      consecutive_failures: 5
+      cooldown: 30s
+
+  - name: anthropic-primary
+    type: anthropic
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+    timeout: 60s
+    breaker:
+      consecutive_failures: 5
+      cooldown: 30s
+
+  - name: ollama-local
+    type: ollama
+    base_url: http://localhost:11434
+    timeout: 180s
+    breaker:
+      consecutive_failures: 3
+      cooldown: 15s
+
+routes:
+  # Stable aliases let application teams switch providers without code changes.
+  - model: fast-chat
+    strategy: priority
+    max_attempts: 2
+    targets:
+      - provider: openai-primary
+        model: gpt-4.1-mini
+      - provider: ollama-local
+        model: llama3.2:3b
+
+  - model: quality-chat
+    targets:
+      - provider: anthropic-primary
+        model: claude-sonnet-4-5
+
+  # Developers may call approved provider model families when stable aliases
+  # are not desirable. Models absent from this table are rejected.
+  - model: "gpt-*"
+    targets:
+      - provider: openai-primary
+
+default_model: ""

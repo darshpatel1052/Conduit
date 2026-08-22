@@ -1,0 +1,22 @@
+# Routing table for the load tests: one target, the mock provider.
+#
+# Breaker thresholds are deliberately loose. Under a saturation test the point
+# is to find the gateway's ceiling, and a breaker tripping on the resulting
+# errors would stop the test measuring the thing it is there to measure.
+
+providers:
+  - name: mock
+    type: openai
+    base_url: http://localhost:19100
+    timeout: 30s
+    breaker:
+      consecutive_failures: 1000
+      failure_ratio: 0.99
+      min_requests: 100000
+      interval: 60s
+      cooldown: 1s
+
+routes:
+  - model: mock-model
+    targets:
+      - provider: mock

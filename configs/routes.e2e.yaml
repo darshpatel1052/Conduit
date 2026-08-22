@@ -1,0 +1,61 @@
+# Routing fixture used by scripts/e2e.sh. The deliberately dead provider is a
+# test input, not a sensible default for someone evaluating the project.
+
+providers:
+  - name: ollama-local
+    type: ollama
+    base_url: http://localhost:11434
+    timeout: 180s
+    breaker:
+      consecutive_failures: 3
+      failure_ratio: 0.5
+      min_requests: 5
+      interval: 60s
+      cooldown: 15s
+      half_open_max_requests: 1
+
+  - name: ollama-broken
+    type: ollama
+    base_url: http://localhost:19999
+    timeout: 5s
+    breaker:
+      consecutive_failures: 3
+      failure_ratio: 0.5
+      min_requests: 3
+      interval: 30s
+      cooldown: 20s
+      half_open_max_requests: 1
+
+routes:
+  - model: llama3.2:3b
+    targets:
+      - provider: ollama-local
+
+  - model: conduit-ha
+    strategy: priority
+    max_attempts: 2
+    targets:
+      - provider: ollama-broken
+        model: llama3.2:3b
+      - provider: ollama-local
+        model: llama3.2:3b
+
+  - model: conduit-balanced
+    strategy: round_robin
+    targets:
+      - provider: ollama-local
+        model: llama3.2:3b
+      - provider: ollama-local
+        model: llama3.2:3b
+
+  - model: conduit-weighted
+    strategy: weighted
+    targets:
+      - provider: ollama-local
+        model: llama3.2:3b
+        weight: 3
+      - provider: ollama-broken
+        model: llama3.2:3b
+        weight: 1
+
+default_model: ""

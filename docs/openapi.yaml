@@ -1,0 +1,730 @@
+openapi: 3.1.0
+info:
+  title: Conduit API
+  version: 0.3.0
+  description: |
+    Conduit exposes an OpenAI-compatible inference API for applications and a
+    separate, project-scoped admin API for administrators. Applications use
+    project keys; administrators use HTTP-only sessions plus CSRF protection.
+    Prompts and responses are never retained.
+servers:
+  - url: http://localhost:8080
+    description: Local Compose stack
+tags:
+  - { name: Inference }
+  - { name: Sessions }
+  - { name: Projects }
+  - { name: Configuration }
+  - { name: Governance }
+  - { name: Operations }
+paths:
+  /v1/chat/completions:
+    post:
+      tags: [Inference]
+      summary: Complete a chat request through a project model profile
+      security: [{ projectKey: [] }]
+      parameters:
+        - name: X-Conduit-End-User
+          in: header
+          description: Opaque application user ID. Only an HMAC pseudonym is retained.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatCompletionRequest" }
+      responses:
+        "200":
+          description: "JSON completion or an SSE stream ending in `data: [DONE]`."
+          headers:
+            X-Conduit-Project: { $ref: "#/components/headers/Project" }
+            X-Conduit-Profile: { $ref: "#/components/headers/Profile" }
+            X-Conduit-Provider: { $ref: "#/components/headers/Provider" }
+            X-Conduit-Model: { $ref: "#/components/headers/Model" }
+            X-Conduit-Attempts: { $ref: "#/components/headers/Attempts" }
+            X-Conduit-Cache: { $ref: "#/components/headers/Cache" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatCompletionResponse" }
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamFailure" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+        "504": { $ref: "#/components/responses/UpstreamFailure" }
+  /v1/responses:
+    post:
+      tags: [Inference]
+      summary: Generate portable stateless text through a generation profile
+      description: Provider-owned conversations, stored responses, and Responses tools are rejected because they cannot fail over safely across providers.
+      security: [{ projectKey: [] }]
+      parameters:
+        - name: X-Conduit-End-User
+          in: header
+          description: Opaque application user ID. Only an HMAC pseudonym is retained.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResponseRequest" }
+      responses:
+        "200":
+          description: A completed response object or typed Responses SSE events.
+          headers:
+            X-Conduit-Project: { $ref: "#/components/headers/Project" }
+            X-Conduit-Profile: { $ref: "#/components/headers/Profile" }
+            X-Conduit-Provider: { $ref: "#/components/headers/Provider" }
+            X-Conduit-Model: { $ref: "#/components/headers/Model" }
+            X-Conduit-Attempts: { $ref: "#/components/headers/Attempts" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Response" }
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+        "504": { $ref: "#/components/responses/UpstreamFailure" }
+  /v1/embeddings:
+    post:
+      tags: [Inference]
+      summary: Create vectors through an embedding profile
+      security: [{ projectKey: [] }]
+      parameters:
+        - name: X-Conduit-End-User
+          in: header
+          description: Opaque application user ID. Only an HMAC pseudonym is retained.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmbeddingRequest" }
+      responses:
+        "200":
+          description: OpenAI-compatible embedding list.
+          headers:
+            X-Conduit-Project: { $ref: "#/components/headers/Project" }
+            X-Conduit-Profile: { $ref: "#/components/headers/Profile" }
+            X-Conduit-Provider: { $ref: "#/components/headers/Provider" }
+            X-Conduit-Model: { $ref: "#/components/headers/Model" }
+            X-Conduit-Attempts: { $ref: "#/components/headers/Attempts" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddingResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+        "504": { $ref: "#/components/responses/UpstreamFailure" }
+  /v1/models:
+    get:
+      tags: [Inference]
+      summary: List enabled profiles available to the project key
+      security: [{ projectKey: [] }]
+      responses:
+        "200":
+          description: Project profiles in the OpenAI model-list shape.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object: { const: list }
+                  data: { type: array, items: { $ref: "#/components/schemas/Model" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/session/login:
+    post:
+      tags: [Sessions]
+      summary: Start an administrator session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Sets `conduit_session` and returns the CSRF token used for mutations.
+          headers: { Set-Cookie: { schema: { type: string } } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, csrf_token]
+                properties:
+                  user: { $ref: "#/components/schemas/AdminUser" }
+                  csrf_token: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /control/v1/session/me:
+    get:
+      tags: [Sessions]
+      summary: Read the current administrator and CSRF token
+      security: [{ adminSession: [] }]
+      responses:
+        "200": { description: Current session, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /control/v1/session/logout:
+    post:
+      tags: [Sessions]
+      summary: Revoke the current session
+      security: [{ adminSession: [], csrfToken: [] }]
+      responses: { "204": { description: Session revoked } }
+  /control/v1/session/password:
+    post:
+      tags: [Sessions]
+      summary: Change the current administrator password
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, format: password }
+                new_password: { type: string, format: password }
+      responses:
+        "200": { description: Password changed }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /control/v1/invitations/activate:
+    post:
+      tags: [Sessions]
+      summary: Activate a one-use administrator invitation
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, display_name, password]
+              properties:
+                token: { type: string }
+                display_name: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "201": { description: Administrator activated }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /control/v1/administrators/invitations:
+    post:
+      tags: [Governance]
+      summary: Create a one-use invitation (platform owner only)
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                expires_hours: { type: integer, minimum: 1, default: 24 }
+      responses:
+        "201": { description: Invitation metadata and one-time activation token, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /control/v1/projects:
+    get:
+      tags: [Projects]
+      summary: List projects visible to the administrator
+      security: [{ adminSession: [] }]
+      responses:
+        "200": { description: Membership-filtered projects, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Project" } } } } }
+    post:
+      tags: [Projects]
+      summary: Create a project and owner membership
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, name]
+              properties:
+                slug: { type: string, pattern: "^[a-z0-9][a-z0-9-]*$" }
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201": { description: Created project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+  /control/v1/projects/{projectID}:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    get:
+      tags: [Projects]
+      summary: Inspect an authorized project
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } } }
+    put:
+      tags: [Projects]
+      summary: Update project name and description (project owner only)
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "200": { description: Updated project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /control/v1/projects/{projectID}/archive:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    post:
+      tags: [Projects]
+      summary: Archive a project and stop inference for its keys (project owner only)
+      security: [{ adminSession: [], csrfToken: [] }]
+      responses:
+        "200": { description: Archived project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Project is already archived, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /control/v1/projects/{projectID}/members:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    get:
+      tags: [Governance]
+      summary: List project memberships
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Memberships, content: { application/json: { schema: { type: array, items: { type: object, additionalProperties: true } } } } } }
+    post:
+      tags: [Governance]
+      summary: Add an existing administrator to a project
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [project_owner, project_admin, project_viewer] }
+      responses:
+        "201": { description: Membership created }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /control/v1/projects/{projectID}/policy:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    get:
+      tags: [Governance]
+      summary: Read project limits, budget, attribution, cache, and retention policy
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Project policy, content: { application/json: { schema: { $ref: "#/components/schemas/Policy" } } } } }
+    put:
+      tags: [Governance]
+      summary: Replace policy and invalidate cached gateway snapshots
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/Policy" } } } }
+      responses:
+        "200": { description: Updated policy, content: { application/json: { schema: { $ref: "#/components/schemas/Policy" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /control/v1/projects/{projectID}/providers:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    get:
+      tags: [Configuration]
+      summary: List provider metadata; credentials are never returned
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Providers, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Provider" } } } } } }
+    post:
+      tags: [Configuration]
+      summary: Add an encrypted provider connection
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type, base_url]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [openai, anthropic, ollama, openai-compatible] }
+                base_url: { type: string, format: uri }
+                credential: { type: string, writeOnly: true }
+                timeout_ms: { type: integer, minimum: 100 }
+      responses: { "201": { description: Provider metadata, content: { application/json: { schema: { $ref: "#/components/schemas/Provider" } } } } }
+  /control/v1/projects/{projectID}/providers/{providerID}/test:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: providerID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Configuration]
+      summary: Run a bounded authenticated model-list request and audit its outcome
+      security: [{ adminSession: [], csrfToken: [] }]
+      responses:
+        "200":
+          description: Connection outcome; provider response bodies and credentials are not returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [provider_id, ok, latency_ms, message]
+                properties:
+                  provider_id: { type: string, format: uuid }
+                  ok: { type: boolean }
+                  status_code: { type: integer }
+                  latency_ms: { type: integer }
+                  message: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /control/v1/projects/{projectID}/providers/{providerID}/credential:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: providerID, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Configuration]
+      summary: Replace an encrypted provider credential and invalidate gateway replicas
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties: { credential: { type: string, writeOnly: true } }
+      responses:
+        "200": { description: Provider metadata with the new non-secret fingerprint, content: { application/json: { schema: { $ref: "#/components/schemas/Provider" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /control/v1/projects/{projectID}/profiles:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    get:
+      tags: [Configuration]
+      summary: List model profiles and targets
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Profiles, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Profile" } } } } } }
+    post:
+      tags: [Configuration]
+      summary: Create a stable model profile
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProfileInput" } } } }
+      responses: { "201": { description: Created profile, content: { application/json: { schema: { $ref: "#/components/schemas/Profile" } } } } }
+  /control/v1/projects/{projectID}/profiles/{profileID}:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: profileID, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Configuration]
+      summary: Replace a profile and invalidate gateway replicas
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProfileInput" } } } }
+      responses: { "200": { description: Updated profile, content: { application/json: { schema: { $ref: "#/components/schemas/Profile" } } } } }
+  /control/v1/projects/{projectID}/keys:
+    parameters: [{ $ref: "#/components/parameters/ProjectID" }]
+    get:
+      tags: [Governance]
+      summary: List application key metadata
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Key metadata, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/ApplicationKey" } } } } } }
+    post:
+      tags: [Governance]
+      summary: Create a project key; plaintext is returned exactly once
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationKey" } } } }
+      responses: { "201": { description: Key metadata plus one-time `key` value, content: { application/json: { schema: { type: object, additionalProperties: true } } } } }
+  /control/v1/projects/{projectID}/keys/{keyID}/revoke:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: keyID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Governance]
+      summary: Revoke a key immediately
+      security: [{ adminSession: [], csrfToken: [] }]
+      responses: { "200": { description: Key revoked } }
+  /control/v1/projects/{projectID}/usage/overview:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: window, in: query, schema: { type: string, enum: [15m, 1h, 6h, 24h, 7d], default: 24h } }
+    get:
+      tags: [Governance]
+      summary: Read project usage totals from ClickHouse
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Requests, errors, tokens, cost, latency, and cache hits, content: { application/json: { schema: { type: object, additionalProperties: true } } } } }
+  /control/v1/projects/{projectID}/usage/requests:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+    get:
+      tags: [Governance]
+      summary: List recent metadata-only requests for the project
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Requests with project key, environment, pseudonymous user, profile, provider, usage, cost, cache, and latency metadata, content: { application/json: { schema: { type: array, items: { type: object, additionalProperties: true } } } } } }
+  /control/v1/projects/{projectID}/usage/end-users/search:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+    post:
+      tags: [Governance]
+      summary: Find request metadata using the raw opaque application user ID
+      description: The server HMACs the supplied value and discards the raw input before querying ClickHouse.
+      security: [{ adminSession: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [end_user]
+              properties: { end_user: { type: string, writeOnly: true } }
+      responses: { "200": { description: Matching metadata-only requests, content: { application/json: { schema: { type: array, items: { type: object, additionalProperties: true } } } } } }
+  /control/v1/projects/{projectID}/audit:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectID" }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+    get:
+      tags: [Governance]
+      summary: Read immutable, sanitized project audit events
+      security: [{ adminSession: [] }]
+      responses: { "200": { description: Audit events, content: { application/json: { schema: { type: array, items: { type: object, additionalProperties: true } } } } } }
+
+  /livez:
+    get:
+      tags: [Operations]
+      summary: Process liveness
+      security: []
+      responses: { "200": { $ref: "#/components/responses/Health" } }
+  /readyz:
+    get:
+      tags: [Operations]
+      summary: Dependency-aware readiness
+      security: []
+      responses:
+        "200": { $ref: "#/components/responses/Health" }
+        "503": { $ref: "#/components/responses/Health" }
+  /metrics:
+    get:
+      tags: [Operations]
+      summary: Prometheus metrics
+      security: []
+      responses: { "200": { description: Prometheus text exposition, content: { text/plain: { schema: { type: string } } } } }
+
+components:
+  securitySchemes:
+    projectKey: { type: http, scheme: bearer, bearerFormat: Conduit project key }
+    adminSession: { type: apiKey, in: cookie, name: conduit_session }
+    csrfToken: { type: apiKey, in: header, name: X-CSRF-Token }
+  parameters:
+    ProjectID: { name: projectID, in: path, required: true, schema: { type: string, format: uuid } }
+  headers:
+    Project: { description: Project slug, schema: { type: string } }
+    Profile: { description: Stable project profile, schema: { type: string } }
+    Provider: { description: Provider connection selected, schema: { type: string } }
+    Model: { description: Upstream model selected, schema: { type: string } }
+    Attempts: { description: Upstream attempts including failover, schema: { type: integer, minimum: 1 } }
+    Cache: { description: Cache outcome, schema: { type: string, enum: [hit, miss, bypass] } }
+  responses:
+    Health: { description: Health state, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+    BadRequest: { description: Invalid input, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Unauthorized: { description: Authentication failed, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Forbidden: { description: Insufficient project role, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    NotFound: { description: Profile or resource not found, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    RateLimited: { description: Request, token, user, login, or budget limit reached, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    UpstreamFailure: { description: Provider attempts failed, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Unavailable: { description: A dependency needed for safe enforcement is unavailable, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          properties:
+            message: { type: string }
+            type: { type: string }
+            code: { type: string }
+    AdminUser:
+      type: object
+      required: [id, email, display_name, status, platform_owner]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        status: { type: string, enum: [invited, active, disabled] }
+        platform_owner: { type: boolean }
+    Project:
+      type: object
+      required: [id, slug, name, status, configuration_version]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [active, archived] }
+        configuration_version: { type: integer, minimum: 1 }
+        role: { type: string }
+    Provider:
+      type: object
+      required: [id, project_id, name, type, base_url]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string }
+        base_url: { type: string, format: uri }
+        credential_fingerprint: { type: string, description: Non-secret fingerprint only. }
+        timeout_seconds: { type: integer }
+    Target:
+      type: object
+      required: [provider_connection_id, upstream_model_id, priority, weight]
+      properties:
+        provider_connection_id: { type: string, format: uuid }
+        upstream_model_id: { type: string }
+        priority: { type: integer, minimum: 1 }
+        weight: { type: integer, minimum: 1 }
+        input_price_per_million: { type: number, minimum: 0 }
+        output_price_per_million: { type: number, minimum: 0 }
+    ProfileInput:
+      type: object
+      required: [name, kind, strategy, max_attempts, targets]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        kind: { type: string, enum: [generation, embedding], description: Generation profiles serve Chat Completions and Responses; embedding profiles serve Embeddings. }
+        enabled: { type: boolean, default: true }
+        strategy: { type: string, enum: [priority, round_robin, weighted] }
+        max_attempts: { type: integer, minimum: 1 }
+        targets: { type: array, minItems: 1, items: { $ref: "#/components/schemas/Target" } }
+    Profile:
+      allOf:
+        - { $ref: "#/components/schemas/ProfileInput" }
+        - type: object
+          required: [id, project_id]
+          properties:
+            id: { type: string, format: uuid }
+            project_id: { type: string, format: uuid }
+    ApplicationKey:
+      type: object
+      required: [label, environment]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        label: { type: string }
+        environment: { type: string, enum: [development, staging, production, test] }
+        prefix: { type: string, readOnly: true }
+        allowed_profiles: { type: array, items: { type: string } }
+        requests_per_minute: { type: integer, minimum: 0 }
+        tokens_per_minute: { type: integer, minimum: 0 }
+        expires_at: { type: [string, "null"], format: date-time }
+        revoked_at: { type: [string, "null"], format: date-time, readOnly: true }
+        plaintext: { type: string, writeOnly: true, description: Returned once at creation. }
+    Policy:
+      type: object
+      properties:
+        requests_per_minute: { type: integer, minimum: 0 }
+        tokens_per_minute: { type: integer, minimum: 0 }
+        end_user_requests_per_minute: { type: integer, minimum: 0 }
+        monthly_budget_usd: { type: number, minimum: 0 }
+        budget_warning_percent: { type: integer, minimum: 1, maximum: 100 }
+        require_end_user: { type: boolean }
+        cache_mode: { type: string, enum: [disabled, exact, semantic] }
+        cache_ttl_seconds: { type: integer, minimum: 1 }
+        semantic_threshold: { type: number, minimum: 0, maximum: 1 }
+        maximum_cacheable_temperature: { type: number, minimum: 0, maximum: 2 }
+        analytics_retention_days: { type: integer, enum: [7, 30, 90] }
+    Model:
+      type: object
+      required: [id, object, owned_by]
+      properties:
+        id: { type: string }
+        object: { const: model }
+        owned_by: { const: conduit }
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model: { type: string, description: Stable project profile such as `fast`. }
+        messages: { type: array, minItems: 1, items: { type: object, additionalProperties: true } }
+        stream: { type: boolean, default: false }
+        temperature: { type: number }
+        max_tokens: { type: integer, minimum: 1 }
+        tools: { type: array, items: { type: object, additionalProperties: true } }
+        n: { type: integer, minimum: 1 }
+        seed: { type: integer }
+      additionalProperties: true
+    ChatCompletionResponse:
+      type: object
+      required: [id, object, choices]
+      properties:
+        id: { type: string }
+        object: { type: string }
+        created: { type: integer }
+        model: { type: string }
+        choices: { type: array, items: { type: object, additionalProperties: true } }
+        usage: { type: object, additionalProperties: true }
+    ResponseRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model: { type: string, description: Stable generation profile such as `fast`. }
+        input:
+          oneOf:
+            - { type: string }
+            - { type: array, minItems: 1, items: { type: object, additionalProperties: true } }
+        instructions: { type: string }
+        max_output_tokens: { type: integer, minimum: 1 }
+        temperature: { type: number, minimum: 0, maximum: 2 }
+        top_p: { type: number, minimum: 0, maximum: 1 }
+        stream: { type: boolean, default: false }
+        store: { const: false, default: false }
+      additionalProperties: false
+    Response:
+      type: object
+      required: [id, object, created_at, status, model, output]
+      properties:
+        id: { type: string, pattern: "^resp_" }
+        object: { const: response }
+        created_at: { type: integer }
+        status: { type: string, enum: [in_progress, completed, failed] }
+        model: { type: string }
+        output: { type: array, items: { type: object, additionalProperties: true } }
+        usage: { type: [object, "null"], additionalProperties: true }
+        error: { type: [object, "null"], additionalProperties: true }
+    EmbeddingRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model: { type: string, description: Stable embedding profile such as `search`. }
+        input: {}
+        encoding_format: { type: string, enum: [float, base64] }
+        dimensions: { type: integer, minimum: 1 }
+        user: { type: string }
+      additionalProperties: true
+    EmbeddingResponse:
+      type: object
+      required: [object, data, model]
+      properties:
+        object: { const: list }
+        model: { type: string }
+        data:
+          type: array
+          items:
+            type: object
+            required: [object, index, embedding]
+            properties:
+              object: { const: embedding }
+              index: { type: integer, minimum: 0 }
+              embedding: {}
+        usage: { type: object, additionalProperties: true }

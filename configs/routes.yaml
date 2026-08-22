@@ -1,0 +1,22 @@
+# Local development route table. Start Ollama and pull the model below before
+# running Conduit. See routes.example.yaml for hosted providers and failover.
+
+providers:
+  - name: ollama-local
+    type: ollama
+    base_url: http://localhost:11434
+    timeout: 180s
+    breaker:
+      consecutive_failures: 3
+      failure_ratio: 0.5
+      min_requests: 5
+      interval: 60s
+      cooldown: 15s
+      half_open_max_requests: 1
+
+routes:
+  - model: llama3.2:3b
+    targets:
+      - provider: ollama-local
+
+default_model: ""
